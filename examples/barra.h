@@ -29,8 +29,6 @@ problem->addMaterial(1000.0e03, 0.35);
 
 // problem->addInternalPoints({{2.0, 3.0}, {3.0, 3.0}, {4.0, 3.0}, {1.0, 3.0}, {5.0, 3.0}});
 
-problem->generateMesh(geo, 3, "AUTO", false); // ordem <= 10
+problem->generateMesh(geo, 3, "AUTO", false, true); // ordem <= 10
 
 problem->solveElasticityProblem("EPD");
-
-problem->teste();
