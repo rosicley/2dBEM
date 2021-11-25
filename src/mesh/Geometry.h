@@ -19,9 +19,9 @@ public:
 
     Line *addSpline(std::vector<Point *> points, const bool &discretization = true);
 
-    LineLoop *addLineLoop(std::vector<Line *> lines, const bool &verify = true);
+    LineLoop *addLineLoop(std::vector<Line *> lines, const bool &verify = false);
 
-    Surface *addSurface(std::vector<LineLoop *> lineLoop, const int &indexMaterial = 0, const double &thickness = 1.0);
+    // Surface *addSurface(std::vector<LineLoop *> lineLoop, const int &indexMaterial = 0, const double &thickness = 1.0);
 
     Surface *addSurface(std::vector<Line *> lineLoop, const int &indexMaterial = 0, const double &thickness = 1.0);
 
@@ -51,6 +51,12 @@ public:
 
     std::string createGmshCode();
 
+    std::unordered_map<std::string, Surface *> getSurfaces();
+
+    std::unordered_map<std::string, std::vector<std::string>> getRegions();
+
+    bool verifyDuplicatedPoint(const std::string &namePoint);
+
     // void addCrack(std::vector<Point *> points, PlaneSurface *surface, const std::string &openBoundary, const double &jradius, const double &lcarOfJintegral);
 
     // void addCrackOnGlobal(std::vector<Point *> points, const std::string &openBoundary, const double &jradius, const double &lcarOfJintegral, const double &lengthOffset, const double &lcarOfLocalBoundary);
@@ -64,6 +70,8 @@ public:
     // void createGeometryFromCrack();
 
     // void addCrackPoint(const std::string &name, const vecDouble &coordinates);
+
+    int getIndexMaterial(const std::string &name);
 
 private:
     //Geometry

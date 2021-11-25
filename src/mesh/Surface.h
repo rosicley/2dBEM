@@ -24,6 +24,8 @@ public:
 
     void getIndexMaterialAndThickness(int &indexMaterial, double &thickness);
 
+    std::vector<LineLoop *> getLineLoops();
+
 private:
     std::string name_;
     double thickness_;

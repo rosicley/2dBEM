@@ -34,6 +34,12 @@ int Surface::getIndexMaterial()
     return indexMaterial_;
 }
 
+    std::vector<LineLoop *> Surface::getLineLoops()
+    {
+        return lineLoop_;
+    }
+
+
 std::string Surface::getGmshCode()
 {
     std::stringstream text;

@@ -30,14 +30,3 @@ void Material::getProperties(double &young, double &poisson, double &density)
     poisson = poisson_;
     density = density_;
 }
-
-void Material::setDensity(const double &value)
-{
-    density_ = value;
-}
-
-void Material::getPlasticityProperties(double &yieldStress, double &hardening)
-{
-    yieldStress = 200.0e06;
-    hardening = 70.0e09;
-}

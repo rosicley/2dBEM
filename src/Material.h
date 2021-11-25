@@ -24,18 +24,9 @@ public:
     /// @return density
     double getDensity();
 
-    /// Returns the constitutive law
-    /// @return constitutive law
-    std::string getConstitutiveLaw();
-
-
     /// Modifies the arguments with the material properties
     /// @param double young @param double poison @param double density
     void getProperties(double &young, double &poisson, double &density);
-
-    void setDensity(const double &value);
-
-    void getPlasticityProperties(double &yieldStress, double &hardening);
 
 private:
     /// Young's modulus

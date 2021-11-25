@@ -160,23 +160,6 @@ void Problem::gmshReading(const std::string &gmshFile)
         std::getline(file, line);
     }
 
-    /////CHECKING DUPLICATED NODES
-    vecDouble coordRef(3), coordLoop(3);
-    double tol = 1.0e-06;
-    for (Node *noRef : nodes_)
-    {
-        noRef->getCoordinate(coordRef);
-        for (Node *noLoop : nodes_)
-        {
-            noLoop->getCoordinate(coordLoop);
-            if (fabs(coordRef[0] - coordLoop[0]) <= tol and fabs(coordRef[1] - coordLoop[1]) <= tol and noRef != noLoop)
-            {
-                duplicatedNodes_.insert(noRef);
-            }
-        }
-    }
-    //////CHECKING DUPLICATED NODES
-
     jumpLine(2, file);
     //reading elements
     file >> nelem;
@@ -200,6 +183,10 @@ void Problem::gmshReading(const std::string &gmshFile)
         {
             file >> auxconec;
             geometry_->getPoint(name)->addNodeToPoint(nodes_[auxconec - 1]);
+            if (geometry_->verifyDuplicatedPoint(name))
+            {
+                discontinuousNodes_.insert(nodes_[auxconec - 1]);
+            }
         }
         std::getline(file, line);
     }
@@ -217,8 +204,8 @@ void Problem::addNode(const int &index, const vecDouble &coordinate)
 
 void Problem::addBoundaryElement(const int &index, const std::string &name, const std::vector<Node *> &connection)
 {
-    int node0 = duplicatedNodes_.count(connection[0]);
-    int node1 = duplicatedNodes_.count(connection[1]);
+    int node0 = discontinuousNodes_.count(connection[0]);
+    int node1 = discontinuousNodes_.count(connection[1]);
     vecDouble coord(3);
     double aux = 2.0 / static_cast<double>(order_) * collocParam_;
 
@@ -292,8 +279,8 @@ void Problem::createSourcePoints()
         for (BoundaryElement *el : elements_)
         {
             std::vector<Node *> connection = el->getConnection();
-            int node0 = duplicatedNodes_.count(connection[0]);
-            int node1 = duplicatedNodes_.count(connection[1]);
+            int node0 = discontinuousNodes_.count(connection[0]);
+            int node1 = discontinuousNodes_.count(connection[1]);
             vecDouble coord(3);
 
             vecDouble xsis(order_ + 1);
@@ -325,6 +312,37 @@ void Problem::createSourcePoints()
                 sourcePoints_[connection[i]->getIndex()]->setCoordinate(coord);
             }
         }
+    }
+
+    for (auto &region : geometry_->getRegions())
+    {
+        std::vector<BoundaryElement *> elements;
+        for (auto &line : region.second)
+        {
+            for (auto &el : lineElements_[line])
+            {
+                elements.push_back(el);
+            }
+        }
+        subElements_[region.first] = elements;
+    }
+
+    for (auto &region : subElements_)
+    {
+        std::unordered_set<CollocationPoint *> collocAuxiliar;
+        std::vector<SourcePoint *> sourceR;
+        for (auto &el : region.second)
+        {
+            for (auto &colloc : el->getCollocationConnection())
+            {
+                if (collocAuxiliar.count(colloc) == 0)
+                {
+                    sourceR.push_back(sourcePoints_[colloc->getIndex()]);
+                    collocAuxiliar.insert(colloc);
+                }
+            }
+        }
+        subSourcePoints_[region.first] = sourceR;
     }
 }
 
@@ -412,7 +430,7 @@ void Problem::exportToParaviewGeometricMesh(const int &index)
 
     for (int ie = 0; ie < nElement; ie++)
     {
-        file << 4 << "\n";
+        file << 68 << "\n";
     }
 
     file << "      </DataArray>"
@@ -453,7 +471,7 @@ void Problem::exportToParaviewGeometricMesh(const int &index)
          << "\n";
 
     file << "<DataArray type=\"Float64\" NumberOfComponents=\"1\" "
-         << "Name=\"IndexElement\" format=\"ascii\">" << std::endl;
+         << "Name=\"ElementIndex\" format=\"ascii\">" << std::endl;
 
     for (auto &line : lineElements_)
     {
@@ -572,7 +590,7 @@ void Problem::exportToParaviewCollocationMesh_Potential(const int &index)
 
     for (int ie = 0; ie < nElement; ie++)
     {
-        file << 4 << "\n";
+        file << 68 << "\n";
     }
     for (SourcePoint *n : internalPoints_)
     {
@@ -669,7 +687,7 @@ void Problem::exportToParaviewCollocationMesh_Potential(const int &index)
          << "\n";
 
     file << "<DataArray type=\"Float64\" NumberOfComponents=\"1\" "
-         << "Name=\"IndexElement\" format=\"ascii\">" << std::endl;
+         << "Name=\"ElementIndex\" format=\"ascii\">" << std::endl;
 
     for (auto &line : lineElements_)
     {
@@ -720,9 +738,12 @@ void Problem::exportToParaviewSourcePoints(const int &index)
          << "NumberOfComponents=\"3\" format=\"ascii\">"
          << "\n";
 
-    for (SourcePoint *n : sourcePoints_)
+    for (auto &sub : subSourcePoints_)
     {
-        file << n->getCoordinate(0) << " " << n->getCoordinate(1) << " " << n->getCoordinate(2) << "\n";
+        for (auto &n : sub.second)
+        {
+            file << n->getCoordinate(0) << " " << n->getCoordinate(1) << " " << n->getCoordinate(2) << "\n";
+        }
     }
 
     file << "      </DataArray>"
@@ -736,9 +757,12 @@ void Problem::exportToParaviewSourcePoints(const int &index)
          << "Name=\"connectivity\" format=\"ascii\">"
          << "\n";
     int cont = 0;
-    for (SourcePoint *n : sourcePoints_)
+    for (auto &sub : subSourcePoints_)
     {
-        file << cont++ << "\n";
+        for (auto &n : sub.second)
+        {
+            file << cont++ << "\n";
+        }
     }
 
     file << "      </DataArray>"
@@ -749,9 +773,12 @@ void Problem::exportToParaviewSourcePoints(const int &index)
          << "\n";
 
     cont = 0;
-    for (SourcePoint *n : sourcePoints_)
+    for (auto &sub : subSourcePoints_)
     {
-        file << cont++ << "\n";
+        for (auto &n : sub.second)
+        {
+            file << ++cont << "\n";
+        }
     }
 
     file << "      </DataArray>"
@@ -761,9 +788,12 @@ void Problem::exportToParaviewSourcePoints(const int &index)
          << "format=\"ascii\">"
          << "\n";
 
-    for (SourcePoint *n : sourcePoints_)
+    for (auto &sub : subSourcePoints_)
     {
-        file << 1 << "\n";
+        for (auto &n : sub.second)
+        {
+            file << 1 << "\n";
+        }
     }
 
     file << "      </DataArray>"
@@ -773,6 +803,21 @@ void Problem::exportToParaviewSourcePoints(const int &index)
     //nodal results
     file << "    <PointData>"
          << "\n";
+
+    file << "      <DataArray type=\"Float64\" NumberOfComponents=\"1\" "
+         << "Name=\"SubRegion\" format=\"ascii\">"
+         << "\n";
+    for (auto &sub : subSourcePoints_)
+    {
+        int index = std::stoi(sub.first.substr(1, sub.first.size() - 0));
+        for (auto &n : sub.second)
+        {
+            file << index << "\n";
+        }
+    }
+    file << "      </DataArray> "
+         << "\n";
+
     file << "    </PointData>"
          << "\n";
     //elemental results
@@ -1006,7 +1051,7 @@ int Problem::solvePotentialProblem()
 
     if (internalPoints_.size() > 0)
     {
-        computeInternalPoints();
+        computeInternalPointsPotentialProblem();
     }
     if (rank == 0)
     {
@@ -1070,7 +1115,26 @@ void Problem::addInternalPoints(std::vector<std::vector<double>> coord)
     }
 }
 
-int Problem::computeInternalPoints()
+void Problem::addInternalPoints(Surface *surface, const std::vector<std::vector<double>> &coord)
+{
+    std::string surfaceName = surface->getName();
+    if (subInternalPoints_.count(surfaceName) == 0)
+    {
+        std::vector<SourcePoint *> points;
+        subInternalPoints_[surfaceName] = points;
+    }
+
+    int cont = internalPoints_.size();
+    for (auto &points : coord)
+    {
+        SourcePoint *source = new SourcePoint(cont++, points);
+        internalPoints_.push_back(source);
+        subInternalPoints_[surfaceName].push_back(source);
+        internalDisplacements_.push_back({0.0, 0.0});
+    }
+}
+
+int Problem::computeInternalPointsPotentialProblem()
 {
     int rank;
     MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
@@ -1278,6 +1342,153 @@ int Problem::computeInternalPoints()
     CHKERRQ(ierr);
 }
 
+int Problem::computeInternalPointsElasticityProblem()
+{
+    int rank;
+    MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
+
+    const int nCollocationPoints = collocPoints_.size();
+    const int nInterPoints = internalPoints_.size();
+
+    //Create PETSc dense parallel matrix
+    ierr = MatCreateDense(PETSC_COMM_WORLD, PETSC_DECIDE, PETSC_DECIDE,
+                          2 * nInterPoints, 2 * nCollocationPoints, NULL, &A);
+    CHKERRQ(ierr);
+    ierr = MatGetOwnershipRange(A, &Istart, &Iend);
+    CHKERRQ(ierr);
+    ierr = MatDuplicate(A, MAT_DO_NOT_COPY_VALUES, &C);
+    CHKERRQ(ierr);
+
+    //Create PETSc vectors
+    ierr = VecCreate(PETSC_COMM_WORLD, &b);
+    CHKERRQ(ierr);
+    ierr = VecSetSizes(b, PETSC_DECIDE, 2 * nCollocationPoints);
+    CHKERRQ(ierr);
+    ierr = VecSetFromOptions(b);
+    CHKERRQ(ierr);
+    ierr = VecDuplicate(b, &x);
+    CHKERRQ(ierr);
+    ierr = VecCreate(PETSC_COMM_WORLD, &All);
+    CHKERRQ(ierr);
+    ierr = VecSetSizes(All, PETSC_DECIDE, 2 * nInterPoints);
+    CHKERRQ(ierr);
+    ierr = VecSetFromOptions(All);
+    CHKERRQ(ierr);
+
+    if (rank == 0)
+    {
+        matDouble matGl, matHl;
+        for (auto &subRegionIntPoints : subInternalPoints_)
+        {
+            const int indexMat = geometry_->getIndexMaterial(subRegionIntPoints.first);
+            const int nIntPointSubRegion = subRegionIntPoints.second.size();
+
+            int internalPointIndex[2 * nIntPointSubRegion];
+            for (int is = 0; is < nIntPointSubRegion; is++)
+            {
+                internalPointIndex[2 * is] = 2 * subRegionIntPoints.second[is]->getIndex();
+                internalPointIndex[2 * is + 1] = 2 * subRegionIntPoints.second[is]->getIndex() + 1;
+            }
+
+            for (auto &el : subElements_[subRegionIntPoints.first])
+            {
+                el->elasticityContribution(subRegionIntPoints.second, matGl, matHl, materials_[indexMat]);
+                std::vector<CollocationPoint *> conec = el->getCollocationConnection();
+
+                for (int in = 0, nNodes = conec.size(); in < nNodes; in++)
+                {
+                    for (int dir = 0; dir < 2; dir++)
+                    {
+                        const int index = 2 * conec[in]->getIndex() + dir;
+                        const int indexLocal = 2 * in + dir;
+                        for (int iIP = 0; iIP < 2 * nIntPointSubRegion; iIP++)
+                        {
+                            ierr = MatSetValues(A, 1, &internalPointIndex[iIP], 1, &index, &matHl[iIP][indexLocal], ADD_VALUES);
+                            ierr = MatSetValues(C, 1, &internalPointIndex[iIP], 1, &index, &matGl[iIP][indexLocal], ADD_VALUES);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    //Assemble matrices
+    ierr = MatAssemblyBegin(A, MAT_FINAL_ASSEMBLY);
+    CHKERRQ(ierr);
+    ierr = MatAssemblyEnd(A, MAT_FINAL_ASSEMBLY);
+    CHKERRQ(ierr);
+    ierr = MatAssemblyBegin(C, MAT_FINAL_ASSEMBLY);
+    CHKERRQ(ierr);
+    ierr = MatAssemblyEnd(C, MAT_FINAL_ASSEMBLY);
+    CHKERRQ(ierr);
+
+    double value;
+
+    if (rank == 0)
+    {
+        for (int ic = 0; ic < nCollocationPoints; ic++)
+        {
+            for (int dir = 0; dir < 2; dir++)
+            {
+                const int index = 2 * collocPoints_[ic]->getIndex() + dir;
+
+                value = collocPoints_[ic]->getForce(dir);
+                ierr = VecSetValues(x, 1, &index, &value, ADD_VALUES);
+
+                value = collocPoints_[ic]->getDisplacement(dir);
+                ierr = VecSetValues(b, 1, &index, &value, ADD_VALUES);
+            }
+        }
+    }
+
+    ierr = VecAssemblyBegin(x);
+    CHKERRQ(ierr);
+    ierr = VecAssemblyEnd(x);
+    CHKERRQ(ierr);
+    ierr = VecAssemblyBegin(b);
+    CHKERRQ(ierr);
+    ierr = VecAssemblyEnd(b);
+    CHKERRQ(ierr);
+
+    ierr = MatMult(C, x, All);
+    CHKERRQ(ierr);
+    for (int ic = 0; ic < nInterPoints; ic++)
+    {
+        for (int dir = 0; dir < 2; dir++)
+        {
+            const int index = 2 * internalPoints_[ic]->getIndex() + dir;
+            ierr = VecGetValues(All, 1, &index, &value);
+            CHKERRQ(ierr);
+            internalDisplacements_[ic][dir] = value;
+        }
+    }
+
+    ierr = MatMult(A, b, All);
+    CHKERRQ(ierr);
+    for (int ic = 0; ic < nInterPoints; ic++)
+    {
+        for (int dir = 0; dir < 2; dir++)
+        {
+            const int index = 2 * internalPoints_[ic]->getIndex() + dir;
+            ierr = VecGetValues(All, 1, &index, &value);
+            CHKERRQ(ierr);
+            internalDisplacements_[ic][dir] -= value;
+        }
+    }
+
+    ierr = VecDestroy(&All);
+    CHKERRQ(ierr);
+    ierr = MatDestroy(&A);
+    CHKERRQ(ierr);
+    ierr = MatDestroy(&C);
+    CHKERRQ(ierr);
+
+    for (int i = 0; i < nInterPoints; i++)
+    {
+        cout << internalDisplacements_[i][0] << " " << internalDisplacements_[i][1] << "\n";
+    }
+}
+
 void Problem::teste()
 {
     // SourcePoint *s = sourcePoints_[16];
@@ -1340,28 +1551,6 @@ int Problem::solveElasticityProblem(const std::string &planeState)
     int nCollocation = collocPoints_.size();
     int nDegree = 2 * nCollocation;
 
-    // for (int i = 0; i < nCollocation; i++)
-    // {
-    //     if (collocCondition_[2 * i] == 0)
-    //     {
-    //         cout << "FORCE: " << collocPoints_[i]->getForce(0);
-    //     }
-    //     else
-    //     {
-    //         cout << "DISPL: " << collocPoints_[i]->getDisplacement(0);
-    //     }
-    //     cout << " ";
-    //     if (collocCondition_[2 * i + 1] == 0)
-    //     {
-    //         cout << "FORCE: " << collocPoints_[i]->getForce(1);
-    //     }
-    //     else
-    //     {
-    //         cout << "DISPL: " << collocPoints_[i]->getDisplacement(1);
-    //     }
-    //     cout << "\n";
-    // }
-
     //Create PETSc dense parallel matrix
     ierr = MatCreateDense(PETSC_COMM_WORLD, PETSC_DECIDE, PETSC_DECIDE,
                           nDegree, nDegree, NULL, &A);
@@ -1386,34 +1575,72 @@ int Problem::solveElasticityProblem(const std::string &planeState)
     matDouble matGl, matHl;
     if (rank == 0)
     {
-        for (BoundaryElement *el : elements_)
+        for (auto &sub : subElements_)
         {
-            el->elasticityContribution(sourcePoints_, matGl, matHl, materials_[0]);
-            std::vector<CollocationPoint *> conec = el->getCollocationConnection();
-
-            for (int ic = 0, nConec = conec.size(); ic < nConec; ic++)
+            const int indexMat = geometry_->getIndexMaterial(sub.first);
+            const std::vector<SourcePoint *> sourcePoints = subSourcePoints_[sub.first];
+            const int nSourceP = sourcePoints.size();
+            int indexSourcePoints[2 * nSourceP];
+            for (int is = 0; is < nSourceP; is++)
             {
-                for (int dir = 0; dir < 2; dir++)
-                {
-                    int index = 2 * conec[ic]->getIndex() + dir;
-                    int indexLocal = 2 * ic + dir;
-                    if (collocCondition_[index] == 0) ///CONHEÇO A FORÇA NO PONTO/DIREÇÃO
-                    {
-                        for (int isp = 0; isp < 2 * sourcePoints_.size(); isp++)
-                        {
-                            ierr = MatSetValues(A, 1, &isp, 1, &index, &matHl[isp][indexLocal], ADD_VALUES); //A é a matriz H e C é a matriz G
-                            ierr = MatSetValues(C, 1, &isp, 1, &index, &matGl[isp][indexLocal], ADD_VALUES);
-                        }
-                    }
-                    else ///CONHEÇO O DESLOCAMENTO NO PONTO/DIREÇÃO
-                    {
-                        for (int isp = 0; isp < 2 * sourcePoints_.size(); isp++)
-                        {
-                            double Haux = -matHl[isp][indexLocal];
-                            double Gaux = -matGl[isp][indexLocal];
+                indexSourcePoints[2 * is] = 2 * sourcePoints[is]->getIndex();
+                indexSourcePoints[2 * is + 1] = 2 * sourcePoints[is]->getIndex() + 1;
+            }
 
-                            ierr = MatSetValues(A, 1, &isp, 1, &index, &Gaux, ADD_VALUES);
-                            ierr = MatSetValues(C, 1, &isp, 1, &index, &Haux, ADD_VALUES);
+            for (auto &el : sub.second)
+            {
+                el->elasticityContribution(sourcePoints, matGl, matHl, materials_[indexMat]);
+                std::vector<CollocationPoint *> conec = el->getCollocationConnection();
+                for (int ic = 0, nConec = conec.size(); ic < nConec; ic++)
+                {
+                    for (int dir = 0; dir < 2; dir++)
+                    {
+                        const int index = 2 * conec[ic]->getIndex() + dir;
+                        const int indexLocal = 2 * ic + dir;
+                        const int cond = collocCondition_[index];
+                        if (cond == 0) ///CONHEÇO A FORÇA NO PONTO/DIREÇÃO
+                        {
+                            for (int isp = 0; isp < 2 * nSourceP; isp++)
+                            {
+                                ierr = MatSetValues(A, 1, &indexSourcePoints[isp], 1, &index, &matHl[isp][indexLocal], ADD_VALUES); //A é a matriz H e C é a matriz G
+                                ierr = MatSetValues(C, 1, &indexSourcePoints[isp], 1, &index, &matGl[isp][indexLocal], ADD_VALUES);
+                            }
+                        }
+                        else if (cond == 1) ///CONHEÇO O DESLOCAMENTO NO PONTO/DIREÇÃO
+                        {
+                            for (int isp = 0; isp < 2 * nSourceP; isp++)
+                            {
+                                double Haux = -matHl[isp][indexLocal];
+                                double Gaux = -matGl[isp][indexLocal];
+
+                                ierr = MatSetValues(A, 1, &indexSourcePoints[isp], 1, &index, &Gaux, ADD_VALUES);
+                                ierr = MatSetValues(C, 1, &indexSourcePoints[isp], 1, &index, &Haux, ADD_VALUES);
+                            }
+                        }
+                        else if (cond == 2)
+                        {
+                            const int indexAux = 2 * coupledCollocFirst_[conec[ic]->getIndex()] + dir;
+                            for (int isp = 0; isp < 2 * nSourceP; isp++)
+                            {
+                                ierr = MatSetValues(A, 1, &indexSourcePoints[isp], 1, &index, &matHl[isp][indexLocal], ADD_VALUES); //A é a matriz H e C é a matriz G
+
+                                ierr = MatSetValues(A, 1, &indexSourcePoints[isp], 1, &indexAux, &matGl[isp][indexLocal], ADD_VALUES);
+                            }
+                        }
+                        else if (cond == 3)
+                        {
+                            const int indexAux = 2 * coupledCollocSecond_[conec[ic]->getIndex()] + dir;
+                            for (int isp = 0; isp < 2 * nSourceP; isp++)
+                            {
+                                ierr = MatSetValues(A, 1, &indexSourcePoints[isp], 1, &indexAux, &matHl[isp][indexLocal], ADD_VALUES); //A é a matriz H e C é a matriz G
+
+                                double Gaux = -matGl[isp][indexLocal];
+                                ierr = MatSetValues(A, 1, &indexSourcePoints[isp], 1, &index, &Gaux, ADD_VALUES);
+                            }
+                        }
+                        else
+                        {
+                            cout << "ERROR\n";
                         }
                     }
                 }
@@ -1424,16 +1651,30 @@ int Problem::solveElasticityProblem(const std::string &planeState)
     if (!sourceOut_ and rank == 0)
     {
         double ccc = 0.5;
-        for (int isp = 0; isp < nDegree; isp++)
+        for (int icoloc = 0; icoloc < nCollocation; icoloc++)
         {
-            if (collocCondition_[isp] == 0) ///CONHEÇO A FORÇA NO PONTO//DIREÇÃO
+            for (int dir = 0; dir < 2; dir++)
             {
-                ierr = MatSetValues(A, 1, &isp, 1, &isp, &ccc, ADD_VALUES);
-            }
-            else ///CONHEÇO O DESLOCAMENTO NO PONTO/DIREÇÃO
-            {
-                double Haux = -ccc;
-                ierr = MatSetValues(C, 1, &isp, 1, &isp, &Haux, ADD_VALUES);
+                const int isp = 2 * icoloc + dir;
+                const int cond = collocCondition_[isp];
+                if (cond == 0) ///CONHEÇO A FORÇA NO PONTO//DIREÇÃO
+                {
+                    ierr = MatSetValues(A, 1, &isp, 1, &isp, &ccc, ADD_VALUES);
+                }
+                else if (cond == 1) ///CONHEÇO O DESLOCAMENTO NO PONTO/DIREÇÃO
+                {
+                    double Haux = -ccc;
+                    ierr = MatSetValues(C, 1, &isp, 1, &isp, &Haux, ADD_VALUES);
+                }
+                else if (cond == 2)
+                {
+                    ierr = MatSetValues(A, 1, &isp, 1, &isp, &ccc, ADD_VALUES);
+                }
+                else if (cond == 3)
+                {
+                    const int indexAux = 2 * coupledCollocSecond_[icoloc] + dir;
+                    ierr = MatSetValues(A, 1, &isp, 1, &indexAux, &ccc, ADD_VALUES);
+                }
             }
         }
     }
@@ -1475,17 +1716,24 @@ int Problem::solveElasticityProblem(const std::string &planeState)
         {
             for (int dir = 0; dir < 2; dir++)
             {
-                int index = 2 * ic + dir;
-                if (collocCondition_[2 * ic + dir] == 0) ///CONHEÇO A FORÇA NO PONTO/DIREÇÃO
+                const int index = 2 * ic + dir;
+                const int cond = collocCondition_[index];
+                if (cond == 0) ///CONHEÇO A FORÇA NO PONTO/DIREÇÃO
                 {
                     value = collocPoints_[ic]->getForce(dir);
                     ierr = VecSetValues(x, 1, &index, &value, ADD_VALUES);
                 }
-                else ///CONHEÇO O DESLOCAMENTO NO PONTO/DIREÇÃO
+                else if (cond == 1) ///CONHEÇO O DESLOCAMENTO NO PONTO/DIREÇÃO
                 {
                     value = collocPoints_[ic]->getDisplacement(dir);
                     ierr = VecSetValues(x, 1, &index, &value, ADD_VALUES);
                 }
+                // else if (cond == 2)
+                // {
+                // }
+                // else if (cond == 3)
+                // {
+                // }
             }
         }
     }
@@ -1549,18 +1797,33 @@ int Problem::solveElasticityProblem(const std::string &planeState)
     {
         for (int dir = 0; dir < 2; dir++)
         {
-            int index = 2 * ic + dir;
-            if (collocCondition_[2 * ic + dir] == 0) ///CONHEÇO A FORÇA NO PONTO/DIREÇÃO
+            const int index = 2 * ic + dir;
+            const int cond = collocCondition_[index];
+            if (cond == 0) ///CONHEÇO A FORÇA NO PONTO/DIREÇÃO
             {
                 ierr = VecGetValues(All, 1, &index, &value);
                 CHKERRQ(ierr);
                 collocPoints_[ic]->setDisplacement(value, dir);
             }
-            else ///CONHEÇO O DESLOCAMENTO NO PONTO/DIREÇÃO
+            else if (cond == 1) ///CONHEÇO O DESLOCAMENTO NO PONTO/DIREÇÃO
             {
                 ierr = VecGetValues(All, 1, &index, &value);
                 CHKERRQ(ierr);
                 collocPoints_[ic]->setForce(value, dir);
+            }
+            else if (cond == 2)
+            {
+                ierr = VecGetValues(All, 1, &index, &value);
+                CHKERRQ(ierr);
+                collocPoints_[ic]->setDisplacement(value, dir);
+                collocPoints_[coupledCollocFirst_[ic]]->setDisplacement(value, dir);
+            }
+            else if (cond == 3)
+            {
+                ierr = VecGetValues(All, 1, &index, &value);
+                CHKERRQ(ierr);
+                collocPoints_[ic]->setForce(value, dir);
+                collocPoints_[coupledCollocSecond_[ic]]->setForce(-value, dir);
             }
         }
     }
@@ -1580,7 +1843,7 @@ int Problem::solveElasticityProblem(const std::string &planeState)
 
     if (internalPoints_.size() > 0)
     {
-        computeInternalPoints();
+        computeInternalPointsElasticityProblem();
     }
     if (rank == 0)
     {
@@ -1648,6 +1911,15 @@ void Problem::applyElasticityBoundaryConditions()
             }
         }
     }
+
+    for (auto &c : coupledCollocFirst_)
+    {
+        collocCondition_[2 * c.first] = 2;
+        collocCondition_[2 * c.first + 1] = 2;
+
+        collocCondition_[2 * c.second] = 3;
+        collocCondition_[2 * c.second + 1] = 3;
+    }
 }
 
 void Problem::exportToParaviewCollocationMesh_Elasticity(const int &index)
@@ -1684,10 +1956,10 @@ void Problem::exportToParaviewCollocationMesh_Elasticity(const int &index)
     {
         file << n->getCurrentCoordinate(0) << " " << n->getCurrentCoordinate(1) << " " << n->getCurrentCoordinate(2) << "\n";
     }
-    // for (SourcePoint *n : internalPoints_)
-    // {
-    //     file << n->getCoordinate(0) << " " << n->getCoordinate(1) << " " << n->getCoordinate(2) << "\n";
-    // }
+    for (SourcePoint *n : internalPoints_)
+    {
+        file << n->getCoordinate(0) + internalDisplacements_[n->getIndex()][0] << " " << n->getCoordinate(1) + internalDisplacements_[n->getIndex()][1] << " " << n->getCoordinate(2) << "\n";
+    }
 
     file << "      </DataArray>"
          << "\n"
@@ -1746,7 +2018,7 @@ void Problem::exportToParaviewCollocationMesh_Elasticity(const int &index)
 
     for (int ie = 0; ie < nElement; ie++)
     {
-        file << 4 << "\n";
+        file << 68 << "\n";
     }
     for (SourcePoint *n : internalPoints_)
     {
@@ -1768,10 +2040,10 @@ void Problem::exportToParaviewCollocationMesh_Elasticity(const int &index)
     {
         file << n->getDisplacement(0) << " " << n->getDisplacement(1) << "\n";
     }
-    // for (SourcePoint *n : internalPoints_)
-    // {
-    //     file << internalPotential_[n->getIndex()] << "\n";
-    // }
+    for (SourcePoint *n : internalPoints_)
+    {
+        file << internalDisplacements_[n->getIndex()][0] << " " << internalDisplacements_[n->getIndex()][1] << "\n";
+    }
     file << "      </DataArray> "
          << "\n";
 
@@ -1782,10 +2054,11 @@ void Problem::exportToParaviewCollocationMesh_Elasticity(const int &index)
     {
         file << n->getForce(0) << " " << n->getForce(1) << "\n";
     }
-    // for (SourcePoint *n : internalPoints_)
-    // {
-    //     file << sqrt(internalFlux_[n->getIndex()][0] * internalFlux_[n->getIndex()][0] + internalFlux_[n->getIndex()][1] * internalFlux_[n->getIndex()][1]) << "\n";
-    // }
+    for (SourcePoint *n : internalPoints_)
+    {
+        file << 0.0 <<" "<<0.0<<"\n";
+        // file << sqrt(internalFlux_[n->getIndex()][0] * internalFlux_[n->getIndex()][0] + internalFlux_[n->getIndex()][1] * internalFlux_[n->getIndex()][1]) << "\n";
+    }
     file << "      </DataArray> "
          << "\n";
 
@@ -1843,7 +2116,7 @@ void Problem::exportToParaviewCollocationMesh_Elasticity(const int &index)
          << "\n";
 
     file << "<DataArray type=\"Float64\" NumberOfComponents=\"1\" "
-         << "Name=\"IndexElement\" format=\"ascii\">" << std::endl;
+         << "Name=\"ElementIndex\" format=\"ascii\">" << std::endl;
 
     for (auto &line : lineElements_)
     {
@@ -1874,4 +2147,58 @@ void Problem::addMaterial(const double &young, const double &poisson, const doub
 {
     Material *mat = new Material(young, poisson, density);
     materials_.push_back(mat);
+}
+
+void Problem::coupleLines(std::vector<std::vector<Line *>> coupledLines)
+{
+    for (auto &c : coupledLines)
+    {
+        if (c.size() == 2)
+        {
+            std::unordered_set<CollocationPoint *> line0, line1;
+            for (auto &el : lineElements_[c[0]->getName()])
+            {
+                for (auto &colloc : el->getCollocationConnection())
+                {
+                    line0.insert(colloc);
+                }
+            }
+            for (auto &el : lineElements_[c[1]->getName()])
+            {
+                for (auto &colloc : el->getCollocationConnection())
+                {
+                    line1.insert(colloc);
+                }
+            }
+            vecDouble coord0(3), coord1(3);
+            for (auto &colloc0 : line0)
+            {
+                bool find = false;
+                colloc0->getCoordinate(coord0);
+                for (auto &colloc1 : line1)
+                {
+                    colloc1->getCoordinate(coord1);
+                    if (fabs(coord0[0] - coord1[0]) <= 1.0e-06 and fabs(coord0[1] - coord1[1]) <= 1.0e-06)
+                    {
+                        coupledCollocFirst_[colloc0->getIndex()] = colloc1->getIndex();
+                        coupledCollocSecond_[colloc1->getIndex()] = colloc0->getIndex();
+                        find = true;
+                        break;
+                    }
+                }
+                if (!find)
+                {
+                    cout << "COLOCAÇÃO " << colloc0->getIndex() << " NÃO ENCONTROU SEU PAR!\n";
+                }
+            }
+        }
+        else
+        {
+            cout << "CHECAR LINHAS ACOPLADAS\n";
+        }
+    }
+    // for (auto &tt : coupledCollocFirst_)
+    // {
+    //     cout << tt.first << " " << tt.second << "\n";
+    // }
 }
