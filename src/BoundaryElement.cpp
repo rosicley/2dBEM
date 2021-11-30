@@ -176,7 +176,7 @@ void BoundaryElement::crossSectionProperties(double &area, double &perim, double
     }
 }
 
-void BoundaryElement::potentialContribution(const std::vector<SourcePoint *> sourcePoints, matDouble &matGlocal, matDouble &matHlocal)
+void BoundaryElement::potentialContribution(const std::vector<SourcePoint *> &sourcePoints, matDouble &matGlocal, matDouble &matHlocal)
 {
     const int nNodes = geoConnection_.size();
     const int nSource = sourcePoints.size();
@@ -278,7 +278,7 @@ void BoundaryElement::potentialContribution(const std::vector<SourcePoint *> sou
     }
 }
 
-void BoundaryElement::calculateInternalFlux(const std::vector<SourcePoint *> sourcePoints, matDouble &matGlocal, matDouble &matHlocal)
+void BoundaryElement::calculateInternalFlux(const std::vector<SourcePoint *> &sourcePoints, matDouble &matGlocal, matDouble &matHlocal)
 {
     const int nNodes = geoConnection_.size();
     const int nSource = sourcePoints.size();
@@ -343,7 +343,7 @@ void BoundaryElement::calculateInternalFlux(const std::vector<SourcePoint *> sou
     }
 }
 
-void BoundaryElement::elasticityContribution(const std::vector<SourcePoint *> sourcePoints, matDouble &matGlocal, matDouble &matHlocal, Material *material)
+void BoundaryElement::elasticityContribution(const std::vector<SourcePoint *> &sourcePoints, matDouble &matGlocal, matDouble &matHlocal, Material *material)
 {
     const int nNodes = geoConnection_.size();
     const int nSource = sourcePoints.size();
@@ -519,6 +519,176 @@ void BoundaryElement::elasticityContribution(const std::vector<SourcePoint *> so
     }
 }
 
+void BoundaryElement::calculateInternalStress(const std::vector<SourcePoint *> &sourcePoints, matDouble &matG, matDouble &matH, Material *material)
+{
+    const int nNodes = geoConnection_.size();
+    const int nSource = sourcePoints.size();
+
+    if (matG.size() == 0)
+    {
+        setSizeMatDouble(matG, 4 * nSource, 2 * nNodes);
+        setSizeMatDouble(matH, 4 * nSource, 2 * nNodes);
+    }
+    else if (matG.size() != 4 * nSource or matG[0].size() != 2 * nNodes)
+    {
+        setSizeMatDouble(matG, 4 * nSource, 2 * nNodes);
+        setSizeMatDouble(matH, 4 * nSource, 2 * nNodes);
+    }
+    setValueMatDouble(matG, 0.0);
+    setValueMatDouble(matH, 0.0);
+
+    double xsi, weight, jac, JACW, normRadius, pi = 3.141592653589793, poisson, young, density, auxU, auxU2, auxP, G, dRadius_dNormal;
+    double radius[2], dRadius_dXi[2];
+    double D[2][2][2], S[2][2][2], DAUX[4][2], SAUX[4][2];
+    const double identity[2][2] = {{1.0, 0.0}, {0.0, 1.0}};
+
+    vecDouble phi(nNodes), dphi_dxsi(nNodes), coordNode(3), coordSourceP(3);
+
+    material->getProperties(young, poisson, density);
+    G = young / (2.0 * (1.0 + poisson));
+    auxU = 1.0 / (8.0 * pi * G * (1.0 - poisson));
+
+    for (int isp = 0; isp < nSource; isp++)
+    {
+        for (int ip = 0, nip = quadrature_->get1DPointsNumber(); ip < nip; ip++)
+        {
+            quadrature_->get1DIntegrationPoint(ip, xsi, weight);
+            getShapeFunctionAndDerivate(xsi, phi, dphi_dxsi);
+
+            // vecDouble tangent(2, 0.0), normal(2, 0.0), coordIP(2, 0.0);
+            double tangent[2] = {0.0, 0.0}, normal[2] = {0.0, 0.0}, coordIP[2] = {0.0, 0.0};
+            for (int in = 0; in < nNodes; in++)
+            {
+                geoConnection_[in]->getCoordinate(coordNode);
+                coordIP[0] += phi[in] * coordNode[0];
+                coordIP[1] += phi[in] * coordNode[1];
+                tangent[0] += dphi_dxsi[in] * coordNode[0];
+                tangent[1] += dphi_dxsi[in] * coordNode[1];
+            }
+            jac = sqrt(tangent[0] * tangent[0] + tangent[1] * tangent[1]);
+            normal[0] = tangent[1] / jac;
+            normal[1] = -tangent[0] / jac;
+            JACW = jac * weight;
+
+            sourcePoints[isp]->getCoordinate(coordSourceP);
+
+            radius[0] = coordIP[0] - coordSourceP[0];
+            radius[1] = coordIP[1] - coordSourceP[1];
+            normRadius = sqrt(radius[0] * radius[0] + radius[1] * radius[1]);
+
+            auxU2 = -(3.0 - 4.0 * poisson) * log(normRadius);
+            auxP = -1.0 / (4.0 * pi * (1.0 - poisson) * normRadius);
+
+            dRadius_dXi[0] = radius[0] / normRadius;
+            dRadius_dXi[1] = radius[1] / normRadius;
+            dRadius_dNormal = dRadius_dXi[0] * normal[0] + dRadius_dXi[1] * normal[1];
+
+            for (int k = 0; k < 2; k++)
+            {
+                for (int i = 0; i < 2; i++)
+                {
+                    for (int j = 0; j < 2; j++)
+                    {
+                        D[k][i][j] = -auxP * ((1.0 - 2.0 * poisson) * (identity[k][i] * dRadius_dXi[j] + identity[k][j] * dRadius_dXi[i] - identity[i][j] * dRadius_dXi[k]) + 2.0 * dRadius_dXi[i] * dRadius_dXi[j] * dRadius_dXi[k]) * JACW;
+
+                        S[k][i][j] = G / (2.0 * pi * (1.0 - poisson) * normRadius * normRadius) * (2.0 * dRadius_dNormal * ((1.0 - 2.0 * poisson) * identity[i][j] * dRadius_dXi[k] + poisson * (identity[i][k] * dRadius_dXi[j] + identity[j][k] * dRadius_dXi[i]) - 4.0 * dRadius_dXi[i] * dRadius_dXi[j] * dRadius_dXi[k]) + 2.0 * poisson * (normal[i] * dRadius_dXi[j] * dRadius_dXi[k] + normal[j] * dRadius_dXi[i] * dRadius_dXi[k]) + (1.0 - 2.0 * poisson) * (2.0 * normal[k] * dRadius_dXi[i] * dRadius_dXi[j] + normal[j] * identity[i][k] + normal[i] * identity[j][k]) - (1.0 - 4.0 * poisson) * normal[k] * identity[i][j]) * JACW;
+                    }
+                }
+            }
+            DAUX[0][0] = D[0][0][0];
+            DAUX[0][1] = D[1][0][0];
+            DAUX[1][0] = D[0][0][1];
+            DAUX[1][1] = D[1][0][1];
+            DAUX[2][0] = D[0][1][0];
+            DAUX[2][1] = D[1][1][0];
+            DAUX[3][0] = D[0][1][1];
+            DAUX[3][1] = D[1][1][1];
+            SAUX[0][0] = S[0][0][0];
+            SAUX[0][1] = S[1][0][0];
+            SAUX[1][0] = S[0][0][1];
+            SAUX[1][1] = S[1][0][1];
+            SAUX[2][0] = S[0][1][0];
+            SAUX[2][1] = S[1][1][0];
+            SAUX[3][0] = S[0][1][1];
+            SAUX[3][1] = S[1][1][1];
+            for (int l = 0; l < 4; l++)
+            {
+                for (int in = 0; in < nNodes; in++)
+                {
+                    for (int k = 0; k < 2; k++)
+                    {
+                        matH[4 * isp + l][2 * in + k] += SAUX[l][k] * phi[in];
+                        matG[4 * isp + l][2 * in + k] += DAUX[l][k] * phi[in];
+                    }
+                }
+            }
+        }
+    }
+}
+
+void BoundaryElement::elasticityBodyForceContribution(const std::vector<SourcePoint *> &sourcePoints, vecDouble &vecB, Material *material, const vecDouble &force)
+{
+    const int nNodes = geoConnection_.size();
+    const int nSource = sourcePoints.size();
+
+    if (vecB.size() != 2 * nSource)
+    {
+        vecB.resize(2 * nSource);
+    }
+    setValueVecDouble(vecB, 0.0);
+
+    double xsi, weight, jac, JACW, normRadius, pi = 3.141592653589793, poisson, young, density, G;
+    double radius[2], dRadius_dXi[2];
+
+    vecDouble phi(nNodes), dphi_dxsi(nNodes), coordNode(3), coordSourceP(3);
+
+    material->getProperties(young, poisson, density);
+    G = young / (2.0 * (1.0 + poisson));
+
+    for (int isp = 0; isp < nSource; isp++)
+    {
+        for (int ip = 0, nip = quadrature_->get1DPointsNumber(); ip < nip; ip++)
+        {
+            quadrature_->get1DIntegrationPoint(ip, xsi, weight);
+            getShapeFunctionAndDerivate(xsi, phi, dphi_dxsi);
+
+            double tangent[2] = {0.0, 0.0}, normal[2] = {0.0, 0.0}, coordIP[2] = {0.0, 0.0};
+            for (int in = 0; in < nNodes; in++)
+            {
+                geoConnection_[in]->getCoordinate(coordNode);
+                coordIP[0] += phi[in] * coordNode[0];
+                coordIP[1] += phi[in] * coordNode[1];
+                tangent[0] += dphi_dxsi[in] * coordNode[0];
+                tangent[1] += dphi_dxsi[in] * coordNode[1];
+            }
+            jac = sqrt(tangent[0] * tangent[0] + tangent[1] * tangent[1]);
+            normal[0] = tangent[1] / jac;
+            normal[1] = -tangent[0] / jac;
+            JACW = jac * weight;
+
+            sourcePoints[isp]->getCoordinate(coordSourceP);
+
+            radius[0] = coordIP[0] - coordSourceP[0];
+            radius[1] = coordIP[1] - coordSourceP[1];
+            normRadius = sqrt(radius[0] * radius[0] + radius[1] * radius[1]);
+
+            dRadius_dXi[0] = radius[0] / normRadius;
+            dRadius_dXi[1] = radius[1] / normRadius;
+
+            double dRadius_dNormal = dRadius_dXi[0] * normal[0] + dRadius_dXi[1] * normal[1];
+            double dRadius_dB = dRadius_dXi[0] * force[0] + dRadius_dXi[1] * force[1];
+
+            vecB[2 * isp] += (-normRadius / (8.0 * pi * G) * (2.0 * log(normRadius) + 1.0) *
+                              (dRadius_dNormal * force[0] - 1.0 / (2.0 * (1.0 - poisson)) * dRadius_dB * normal[0])) *
+                             JACW;
+
+            vecB[2 * isp + 1] += (-normRadius / (8.0 * pi * G) * (2.0 * log(normRadius) + 1.0) *
+                                  (dRadius_dNormal * force[1] - 1.0 / (2.0 * (1.0 - poisson)) * dRadius_dB * normal[1])) *
+                                 JACW;
+        }
+    }
+}
+
 /////////////////DISCONT
 
 DiscontBoundaryElement::DiscontBoundaryElement(const int &index, const std::vector<Node *> &geoConnection, const std::vector<CollocationPoint *> &collocConnection, IntegQuadrature *quadrature, const std::string &discont, const double &collocParam) : BoundaryElement(index, geoConnection, collocConnection, quadrature)
@@ -590,7 +760,7 @@ void DiscontBoundaryElement::getCollocationShapeFunction(const double &xsi, vecD
     }
 }
 
-void DiscontBoundaryElement::potentialContribution(const std::vector<SourcePoint *> sourcePoints, matDouble &matGlocal, matDouble &matHlocal)
+void DiscontBoundaryElement::potentialContribution(const std::vector<SourcePoint *> &sourcePoints, matDouble &matGlocal, matDouble &matHlocal)
 {
     const int nNodes = geoConnection_.size();
     const int nSource = sourcePoints.size();
@@ -706,7 +876,7 @@ void DiscontBoundaryElement::potentialContribution(const std::vector<SourcePoint
     }
 }
 
-void DiscontBoundaryElement::calculateInternalFlux(const std::vector<SourcePoint *> internalPoints, matDouble &matGlocal, matDouble &matHlocal)
+void DiscontBoundaryElement::calculateInternalFlux(const std::vector<SourcePoint *> &internalPoints, matDouble &matGlocal, matDouble &matHlocal)
 {
     const int nNodes = geoConnection_.size();
     const int nInternalP = internalPoints.size();
@@ -772,7 +942,7 @@ void DiscontBoundaryElement::calculateInternalFlux(const std::vector<SourcePoint
     }
 }
 
-void DiscontBoundaryElement::elasticityContribution(const std::vector<SourcePoint *> sourcePoints, matDouble &matGlocal, matDouble &matHlocal, Material *material)
+void DiscontBoundaryElement::elasticityContribution(const std::vector<SourcePoint *> &sourcePoints, matDouble &matGlocal, matDouble &matHlocal, Material *material)
 {
     const int nNodes = geoConnection_.size();
     const int nSource = sourcePoints.size();
@@ -941,6 +1111,114 @@ void DiscontBoundaryElement::elasticityContribution(const std::vector<SourcePoin
                             matHlocal[2 * isp + l][2 * in + k] += Pfund[l][k] * phiColloc[in] + (-Psingular[l][k] + VPC_P[l][k]) * phiCollocSP[in];
                             matGlocal[2 * isp + l][2 * in + k] += Ufund[l][k] * phiColloc[in] + (-Usingular[l][k] + VPC_U[l][k]) * phiCollocSP[in];
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+void DiscontBoundaryElement::calculateInternalStress(const std::vector<SourcePoint *> &sourcePoints, matDouble &matG, matDouble &matH, Material *material)
+{
+    const int nNodes = geoConnection_.size();
+    const int nSource = sourcePoints.size();
+
+    if (matG.size() == 0)
+    {
+        setSizeMatDouble(matG, 4 * nSource, 2 * nNodes);
+        setSizeMatDouble(matH, 4 * nSource, 2 * nNodes);
+    }
+    else if (matG.size() != 4 * nSource or matG[0].size() != 2 * nNodes)
+    {
+        setSizeMatDouble(matG, 4 * nSource, 2 * nNodes);
+        setSizeMatDouble(matH, 4 * nSource, 2 * nNodes);
+    }
+    setValueMatDouble(matG, 0.0);
+    setValueMatDouble(matH, 0.0);
+
+    double xsi, weight, jac, JACW, normRadius, pi = 3.141592653589793, poisson, young, density, auxU, auxU2, auxP, G, dRadius_dNormal;
+    double radius[2], dRadius_dXi[2];
+    double D[2][2][2], S[2][2][2], DAUX[4][2], SAUX[4][2];
+    const double identity[2][2] = {{1.0, 0.0}, {0.0, 1.0}};
+
+    vecDouble phi(nNodes), dphi_dxsi(nNodes), coordNode(3), coordSourceP(3), phiColloc(nNodes);
+
+    material->getProperties(young, poisson, density);
+    G = young / (2.0 * (1.0 + poisson));
+    auxU = 1.0 / (8.0 * pi * G * (1.0 - poisson));
+
+    for (int isp = 0; isp < nSource; isp++)
+    {
+        for (int ip = 0, nip = quadrature_->get1DPointsNumber(); ip < nip; ip++)
+        {
+            quadrature_->get1DIntegrationPoint(ip, xsi, weight);
+            getShapeFunctionAndDerivate(xsi, phi, dphi_dxsi);
+            getCollocationShapeFunction(xsi, phiColloc);
+
+            // vecDouble tangent(2, 0.0), normal(2, 0.0), coordIP(2, 0.0);
+            double tangent[2] = {0.0, 0.0}, normal[2] = {0.0, 0.0}, coordIP[2] = {0.0, 0.0};
+            for (int in = 0; in < nNodes; in++)
+            {
+                geoConnection_[in]->getCoordinate(coordNode);
+                coordIP[0] += phi[in] * coordNode[0];
+                coordIP[1] += phi[in] * coordNode[1];
+                tangent[0] += dphi_dxsi[in] * coordNode[0];
+                tangent[1] += dphi_dxsi[in] * coordNode[1];
+            }
+            jac = sqrt(tangent[0] * tangent[0] + tangent[1] * tangent[1]);
+            normal[0] = tangent[1] / jac;
+            normal[1] = -tangent[0] / jac;
+            JACW = jac * weight;
+
+            sourcePoints[isp]->getCoordinate(coordSourceP);
+
+            radius[0] = coordIP[0] - coordSourceP[0];
+            radius[1] = coordIP[1] - coordSourceP[1];
+            normRadius = sqrt(radius[0] * radius[0] + radius[1] * radius[1]);
+
+            auxU2 = -(3.0 - 4.0 * poisson) * log(normRadius);
+            auxP = -1.0 / (4.0 * pi * (1.0 - poisson) * normRadius);
+
+            dRadius_dXi[0] = radius[0] / normRadius;
+            dRadius_dXi[1] = radius[1] / normRadius;
+            dRadius_dNormal = dRadius_dXi[0] * normal[0] + dRadius_dXi[1] * normal[1];
+
+            for (int k = 0; k < 2; k++)
+            {
+                for (int i = 0; i < 2; i++)
+                {
+                    for (int j = 0; j < 2; j++)
+                    {
+                        D[k][i][j] = -auxP * ((1.0 - 2.0 * poisson) * (identity[k][i] * dRadius_dXi[j] + identity[k][j] * dRadius_dXi[i] - identity[i][j] * dRadius_dXi[k]) + 2.0 * dRadius_dXi[i] * dRadius_dXi[j] * dRadius_dXi[k]) * JACW;
+
+                        S[k][i][j] = G / (2.0 * pi * (1.0 - poisson) * normRadius * normRadius) * (2.0 * dRadius_dNormal * ((1.0 - 2.0 * poisson) * identity[i][j] * dRadius_dXi[k] + poisson * (identity[i][k] * dRadius_dXi[j] + identity[j][k] * dRadius_dXi[i]) - 4.0 * dRadius_dXi[i] * dRadius_dXi[j] * dRadius_dXi[k]) + 2.0 * poisson * (normal[i] * dRadius_dXi[j] * dRadius_dXi[k] + normal[j] * dRadius_dXi[i] * dRadius_dXi[k]) + (1.0 - 2.0 * poisson) * (2.0 * normal[k] * dRadius_dXi[i] * dRadius_dXi[j] + normal[j] * identity[i][k] + normal[i] * identity[j][k]) - (1.0 - 4.0 * poisson) * normal[k] * identity[i][j]) * JACW;
+                    }
+                }
+            }
+            DAUX[0][0] = D[0][0][0];
+            DAUX[0][1] = D[1][0][0];
+            DAUX[1][0] = D[0][0][1];
+            DAUX[1][1] = D[1][0][1];
+            DAUX[2][0] = D[0][1][0];
+            DAUX[2][1] = D[1][1][0];
+            DAUX[3][0] = D[0][1][1];
+            DAUX[3][1] = D[1][1][1];
+            SAUX[0][0] = S[0][0][0];
+            SAUX[0][1] = S[1][0][0];
+            SAUX[1][0] = S[0][0][1];
+            SAUX[1][1] = S[1][0][1];
+            SAUX[2][0] = S[0][1][0];
+            SAUX[2][1] = S[1][1][0];
+            SAUX[3][0] = S[0][1][1];
+            SAUX[3][1] = S[1][1][1];
+            for (int l = 0; l < 4; l++)
+            {
+                for (int in = 0; in < nNodes; in++)
+                {
+                    for (int k = 0; k < 2; k++)
+                    {
+                        matH[4 * isp + l][2 * in + k] += SAUX[l][k] * phiColloc[in];
+                        matG[4 * isp + l][2 * in + k] += DAUX[l][k] * phiColloc[in];
                     }
                 }
             }

@@ -69,32 +69,47 @@ public:
 
     void teste();
 
+    void teste2();
+
     void coupleLines(std::vector<std::vector<Line *>> coupledLines);
 
+    void addBodyForceToSurface(Surface *surface, const vecDouble &values);
+
 private:
-    // Solid variables
+    // Elements
     std::unordered_map<std::string, std::vector<BoundaryElement *>> lineElements_;
     std::unordered_map<std::string, std::vector<BoundaryElement *>> subElements_;
     std::vector<BoundaryElement *> elements_;
 
+    // Geometric nodes
     std::vector<Node *> nodes_;
     std::unordered_set<Node *> discontinuousNodes_;
 
+    // Collocation points
     std::vector<CollocationPoint *> collocPoints_;
-    std::vector<int> collocCondition_; //<collocation index, 0 for known flux or 1 for known potential, 2 or 3 for coupled lines>
+    std::vector<int> collocCondition_; //<collocation index, 0 for known neumman condition or 1 for known dirichelet condition, 2 or 3 for coupled lines>
+    
+    // Source points
     std::unordered_map<std::string, std::vector<SourcePoint *>> subSourcePoints_;
     std::vector<SourcePoint *> sourcePoints_;
 
+    // Coupling lines
     std::unordered_map<int, int> coupledCollocFirst_;
     std::unordered_map<int, int> coupledCollocSecond_;
 
+    // Internal Points
     std::vector<SourcePoint *> internalPoints_;
     std::vector<double> internalPotential_;
-    std::vector<std::vector<double>> internalFlux_; //[flux1, flux2]
+    std::vector<std::vector<double>> internalFlux_;
     std::unordered_map<std::string, std::vector<SourcePoint *>> subInternalPoints_;
     std::vector<std::vector<double>> internalDisplacements_;
+    std::vector<std::vector<double>> internalStresses_;
 
+    // Materials
     std::vector<Material *> materials_;
+
+    // Body force
+    std::unordered_map<std::string, std::vector<double>> bodyForces_;
 
     // Analysis parameters
     IntegQuadrature *quadrature_;
@@ -113,12 +128,12 @@ private:
     VecScatter ctx;
     // PetscScalar val, value;
 
+    // Geometry
     Geometry *geometry_;
     std::string current_working_dir_;
     int order_;
 
-    Geometry *internalGeometry_;
-
+    // Parameters
     double collocParam_;
     bool sourceOut_;
     double offsetSourceOut_;

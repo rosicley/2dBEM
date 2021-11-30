@@ -29,15 +29,17 @@ Line *l6 = geo->addLine({p12, p13});
 Line *l7 = geo->addLine({p14, p15});
 Surface *s1 = geo->addSurface({l4, l5, l6, l7});
 
-geo->transfiniteLine({l0, l1, l3, l2}, 2);
-geo->transfiniteLine({l4, l5, l6, l7}, 2);
+geo->transfiniteLine({l0, l1, l3, l2}, 5);
+geo->transfiniteLine({l4, l5, l6, l7}, 5);
 
-geo->addDirichletCondition(l3, {0.0}, {0.0});
-geo->addNeumannCondition(l5, {1.0}, {});
-
+geo->addNeumannCondition(l2, {}, {1.0});
+geo->addNeumannCondition(l6, {}, {1.0});
 geo->addDirichletCondition(l3, {0.0}, {});
 geo->addDirichletCondition(l0, {}, {0.0});
 geo->addDirichletCondition(l4, {}, {0.0});
+
+// geo->addNeumannCondition(l5, {}, {0.010});
+// geo->addDirichletCondition(l3, {0.0}, {0.0});
 
 Problem *problem = new Problem(40, 0.25, 0.0);
 
@@ -48,7 +50,10 @@ problem->addMaterial(1.0, 0.0);
 problem->generateMesh(geo, 3, "AUTO", false, true); // ordem <= 10
 
 problem->addInternalPoints(s0, {{0.25, 0.5}, {0.5, 0.5}, {0.75, 0.5}});
-problem->addInternalPoints(s1, {{1.5, 0.5}, {1.5, 0.25}, {1.5, 0.75}});
+problem->addInternalPoints(s1, {{1.5, 0.25}, {1.5, 0.75}});
+
+// problem->addBodyForceToSurface(s0, {1.0, 0.0});
+// problem->addBodyForceToSurface(s1, {1.0, 0.0});
 
 problem->coupleLines({{l1, l7}});
 

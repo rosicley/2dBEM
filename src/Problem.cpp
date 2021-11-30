@@ -1059,6 +1059,7 @@ int Problem::solvePotentialProblem()
         exportToParaviewSourcePoints(1);
         exportToParaviewCollocationMesh_Potential(1);
     }
+    return 0;
 }
 
 void Problem::applyPotentialBoundaryConditions()
@@ -1131,6 +1132,7 @@ void Problem::addInternalPoints(Surface *surface, const std::vector<std::vector<
         internalPoints_.push_back(source);
         subInternalPoints_[surfaceName].push_back(source);
         internalDisplacements_.push_back({0.0, 0.0});
+        internalStresses_.push_back({0.0, 0.0, 0.0, 0.0});
     }
 }
 
@@ -1340,6 +1342,8 @@ int Problem::computeInternalPointsPotentialProblem()
     CHKERRQ(ierr);
     ierr = MatDestroy(&C);
     CHKERRQ(ierr);
+
+    return 0;
 }
 
 int Problem::computeInternalPointsElasticityProblem()
@@ -1358,7 +1362,6 @@ int Problem::computeInternalPointsElasticityProblem()
     CHKERRQ(ierr);
     ierr = MatDuplicate(A, MAT_DO_NOT_COPY_VALUES, &C);
     CHKERRQ(ierr);
-
     //Create PETSc vectors
     ierr = VecCreate(PETSC_COMM_WORLD, &b);
     CHKERRQ(ierr);
@@ -1483,10 +1486,135 @@ int Problem::computeInternalPointsElasticityProblem()
     ierr = MatDestroy(&C);
     CHKERRQ(ierr);
 
+    cout << "\nINTERNAL DISPLACEMENTS (X, Y):\n";
     for (int i = 0; i < nInterPoints; i++)
     {
         cout << internalDisplacements_[i][0] << " " << internalDisplacements_[i][1] << "\n";
     }
+
+    ///////////////////
+    // CAUCHY STRESS //
+    ///////////////////
+
+    //Create PETSc dense parallel matrix
+    ierr = MatCreateDense(PETSC_COMM_WORLD, PETSC_DECIDE, PETSC_DECIDE,
+                          4 * nInterPoints, 2 * nCollocationPoints, NULL, &A);
+    CHKERRQ(ierr);
+    ierr = MatGetOwnershipRange(A, &Istart, &Iend);
+    CHKERRQ(ierr);
+    ierr = MatDuplicate(A, MAT_DO_NOT_COPY_VALUES, &C);
+    CHKERRQ(ierr);
+    //Create PETSc vectors
+    ierr = VecCreate(PETSC_COMM_WORLD, &All);
+    CHKERRQ(ierr);
+    ierr = VecSetSizes(All, PETSC_DECIDE, 4 * nInterPoints);
+    CHKERRQ(ierr);
+    ierr = VecSetFromOptions(All);
+    CHKERRQ(ierr);
+
+    if (rank == 0)
+    {
+        matDouble matGl, matHl;
+        for (auto &subRegionIntPoints : subInternalPoints_)
+        {
+            const int indexMat = geometry_->getIndexMaterial(subRegionIntPoints.first);
+            const int nIntPointSubRegion = subRegionIntPoints.second.size();
+
+            int internalPointIndex[4 * nIntPointSubRegion];
+            for (int is = 0; is < nIntPointSubRegion; is++)
+            {
+                internalPointIndex[4 * is] = 4 * subRegionIntPoints.second[is]->getIndex();
+                internalPointIndex[4 * is + 1] = 4 * subRegionIntPoints.second[is]->getIndex() + 1;
+                internalPointIndex[4 * is + 2] = 4 * subRegionIntPoints.second[is]->getIndex() + 2;
+                internalPointIndex[4 * is + 3] = 4 * subRegionIntPoints.second[is]->getIndex() + 3;
+            }
+
+            for (auto &el : subElements_[subRegionIntPoints.first])
+            {
+                el->calculateInternalStress(subRegionIntPoints.second, matGl, matHl, materials_[indexMat]);
+                std::vector<CollocationPoint *> conec = el->getCollocationConnection();
+
+                for (int in = 0, nNodes = conec.size(); in < nNodes; in++)
+                {
+                    for (int dir = 0; dir < 2; dir++)
+                    {
+                        const int index = 2 * conec[in]->getIndex() + dir;
+                        const int indexLocal = 2 * in + dir;
+                        for (int iIP = 0; iIP < 4 * nIntPointSubRegion; iIP++)
+                        {
+                            ierr = MatSetValues(A, 1, &internalPointIndex[iIP], 1, &index, &matHl[iIP][indexLocal], ADD_VALUES);
+                            ierr = MatSetValues(C, 1, &internalPointIndex[iIP], 1, &index, &matGl[iIP][indexLocal], ADD_VALUES);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    //Assemble matrices
+    ierr = MatAssemblyBegin(A, MAT_FINAL_ASSEMBLY);
+    CHKERRQ(ierr);
+    ierr = MatAssemblyEnd(A, MAT_FINAL_ASSEMBLY);
+    CHKERRQ(ierr);
+    ierr = MatAssemblyBegin(C, MAT_FINAL_ASSEMBLY);
+    CHKERRQ(ierr);
+    ierr = MatAssemblyEnd(C, MAT_FINAL_ASSEMBLY);
+    CHKERRQ(ierr);
+
+    // MatView(A, PETSC_VIEWER_STDOUT_WORLD);
+    // CHKERRQ(ierr);
+    // MatView(C, PETSC_VIEWER_STDOUT_WORLD);
+    // CHKERRQ(ierr);
+
+    ierr = MatMult(C, x, All);
+    CHKERRQ(ierr);
+    for (int ic = 0; ic < nInterPoints; ic++)
+    {
+        for (int dir = 0; dir < 4; dir++)
+        {
+            const int index = 4 * internalPoints_[ic]->getIndex() + dir;
+            ierr = VecGetValues(All, 1, &index, &value);
+            CHKERRQ(ierr);
+            internalStresses_[ic][dir] = value;
+        }
+    }
+
+    // VecView(All, PETSC_VIEWER_STDOUT_WORLD);
+    // CHKERRQ(ierr);
+
+    ierr = MatMult(A, b, All);
+    CHKERRQ(ierr);
+    for (int ic = 0; ic < nInterPoints; ic++)
+    {
+        for (int dir = 0; dir < 4; dir++)
+        {
+            const int index = 4 * internalPoints_[ic]->getIndex() + dir;
+            ierr = VecGetValues(All, 1, &index, &value);
+            CHKERRQ(ierr);
+            internalStresses_[ic][dir] -= value;
+        }
+    }
+
+    // VecView(All, PETSC_VIEWER_STDOUT_WORLD);
+    // CHKERRQ(ierr);
+
+    ierr = VecDestroy(&All);
+    CHKERRQ(ierr);
+    ierr = VecDestroy(&x);
+    CHKERRQ(ierr);
+    ierr = VecDestroy(&b);
+    CHKERRQ(ierr);
+    ierr = MatDestroy(&A);
+    CHKERRQ(ierr);
+    ierr = MatDestroy(&C);
+    CHKERRQ(ierr);
+
+    cout << "\nINTERNAL STRESS (XX, XY, YX, YY):\n";
+    for (int i = 0; i < nInterPoints; i++)
+    {
+        cout << internalStresses_[i][0] << " " << internalStresses_[i][1] << " " << internalStresses_[i][2] << " " << internalStresses_[i][3] << "\n";
+    }
+    return 0;
 }
 
 void Problem::teste()
@@ -1751,6 +1879,43 @@ int Problem::solveElasticityProblem(const std::string &planeState)
     ierr = MatMult(C, x, b);
     CHKERRQ(ierr);
 
+    if (bodyForces_.size() > 0)
+    {
+        vecDouble vecB;
+        vecDouble auxB(2 * nCollocation, 0.0);
+        for (auto &bf : bodyForces_)
+        {
+            std::string surfaceName = bf.first;
+            const int indexMat = geometry_->getIndexMaterial(surfaceName);
+            const std::vector<SourcePoint *> sourcePoints = subSourcePoints_[surfaceName];
+            const int nSourceP = sourcePoints.size();
+            int indexSourcePoints[2 * nSourceP];
+            for (int is = 0; is < nSourceP; is++)
+            {
+                indexSourcePoints[2 * is] = 2 * sourcePoints[is]->getIndex();
+                indexSourcePoints[2 * is + 1] = 2 * sourcePoints[is]->getIndex() + 1;
+            }
+
+            for (auto &el : subElements_[surfaceName])
+            {
+                el->elasticityBodyForceContribution(sourcePoints, vecB, materials_[indexMat], bf.second);
+                for (int isp = 0; isp < 2 * nSourceP; isp++)
+                {
+                    ierr = VecSetValues(b, 1, &indexSourcePoints[isp], &vecB[isp], ADD_VALUES);
+                    auxB[indexSourcePoints[isp]] += vecB[isp];
+                }
+            }
+        }
+        //Assemble vectors
+        ierr = VecAssemblyBegin(b);
+        CHKERRQ(ierr);
+        ierr = VecAssemblyEnd(b);
+        CHKERRQ(ierr);
+    }
+
+    // VecView(b, PETSC_VIEWER_STDOUT_WORLD);
+    // CHKERRQ(ierr);
+
     //Create KSP context to solve the linear system
     ierr = KSPCreate(PETSC_COMM_WORLD, &ksp);
     CHKERRQ(ierr);
@@ -1851,6 +2016,7 @@ int Problem::solveElasticityProblem(const std::string &planeState)
         exportToParaviewSourcePoints(1);
         exportToParaviewCollocationMesh_Elasticity(1);
     }
+    return 0;
 }
 
 void Problem::applyElasticityBoundaryConditions()
@@ -2056,7 +2222,7 @@ void Problem::exportToParaviewCollocationMesh_Elasticity(const int &index)
     }
     for (SourcePoint *n : internalPoints_)
     {
-        file << 0.0 <<" "<<0.0<<"\n";
+        file << 0.0 << " " << 0.0 << "\n";
         // file << sqrt(internalFlux_[n->getIndex()][0] * internalFlux_[n->getIndex()][0] + internalFlux_[n->getIndex()][1] * internalFlux_[n->getIndex()][1]) << "\n";
     }
     file << "      </DataArray> "
@@ -2201,4 +2367,24 @@ void Problem::coupleLines(std::vector<std::vector<Line *>> coupledLines)
     // {
     //     cout << tt.first << " " << tt.second << "\n";
     // }
+}
+
+void Problem::addBodyForceToSurface(Surface *surface, const vecDouble &values)
+{
+    bodyForces_[surface->getName()] = values;
+}
+
+void Problem::teste2()
+{
+    SourcePoint *sp = new SourcePoint(0, {0.5, 0.5});
+
+    vecDouble vecB;
+    vecDouble result(2, 0.0);
+    for (BoundaryElement *el : elements_)
+    {
+        el->elasticityBodyForceContribution({sp}, vecB, materials_[0], {1.0, 0.0});
+        result[0] += vecB[0];
+        result[1] += vecB[1];
+    }
+    cout << vecB.size() << ": " << result[0] << " " << result[1] << endl;
 }

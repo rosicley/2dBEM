@@ -31,11 +31,15 @@ public:
 
     void coordOfSourcePoints(const double &xsi, const double &offset, vecDouble &coord);
 
-    virtual void potentialContribution(const std::vector<SourcePoint *> sourcePoints, matDouble &matG, matDouble &matH);
+    virtual void potentialContribution(const std::vector<SourcePoint *> &sourcePoints, matDouble &matG, matDouble &matH);
 
-    virtual void calculateInternalFlux(const std::vector<SourcePoint *> sourcePoints, matDouble &matG, matDouble &matH);
+    virtual void calculateInternalFlux(const std::vector<SourcePoint *> &sourcePoints, matDouble &matG, matDouble &matH);
 
-    virtual void elasticityContribution(const std::vector<SourcePoint *> sourcePoints, matDouble &matG, matDouble &matH, Material *material);
+    virtual void elasticityContribution(const std::vector<SourcePoint *> &sourcePoints, matDouble &matG, matDouble &matH, Material *material);
+
+    virtual void calculateInternalStress(const std::vector<SourcePoint *> &sourcePoints, matDouble &matG, matDouble &matH, Material *material);
+
+    void elasticityBodyForceContribution(const std::vector<SourcePoint *> &sourcePoints, vecDouble &vecB, Material *material, const vecDouble &force);
 
 protected:
     int index_;
@@ -60,13 +64,15 @@ public:
 
     ~DiscontBoundaryElement();
 
-    virtual void potentialContribution(const std::vector<SourcePoint *> sourcePoints, matDouble &matG, matDouble &matH);
+    virtual void potentialContribution(const std::vector<SourcePoint *> &sourcePoints, matDouble &matG, matDouble &matH);
 
     void getCollocationShapeFunction(const double &xsi, vecDouble &phi);
 
-    virtual void calculateInternalFlux(const std::vector<SourcePoint *> sourcePoints, matDouble &matG, matDouble &matH);
+    virtual void calculateInternalFlux(const std::vector<SourcePoint *> &sourcePoints, matDouble &matG, matDouble &matH);
 
-    virtual void elasticityContribution(const std::vector<SourcePoint *> sourcePoints, matDouble &matG, matDouble &matH, Material *material);
+    virtual void elasticityContribution(const std::vector<SourcePoint *> &sourcePoints, matDouble &matG, matDouble &matH, Material *material);
+
+    virtual void calculateInternalStress(const std::vector<SourcePoint *> &sourcePoints, matDouble &matG, matDouble &matH, Material *material);
 
 private:
     std::string discont_; //lef, right, both

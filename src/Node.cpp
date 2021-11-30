@@ -58,8 +58,8 @@ CollocationPoint::CollocationPoint(Node *node) : Node(node->getIndex(), node->ge
 {
     flux_ = 0.0;
     potential_ = 0.0;
-    force_.resize(2, 0.0);
-    displacement_.resize(2, 0.0);
+    force_.resize(3, 0.0);
+    displacement_.resize(3, 0.0);
 }
 
 CollocationPoint::~CollocationPoint()
