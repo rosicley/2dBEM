@@ -931,24 +931,6 @@ int Problem::solvePotentialProblem()
     ierr = MatAssemblyEnd(C, MAT_FINAL_ASSEMBLY);
     CHKERRQ(ierr);
 
-    // MatView(A, PETSC_VIEWER_STDOUT_WORLD);
-    // CHKERRQ(ierr);
-
-    //  MatView(C, PETSC_VIEWER_STDOUT_WORLD);
-    // CHKERRQ(ierr);
-
-    // double val;
-    // for (int i = 0; i < collocPoints_.size(); i++)
-    // {
-    //     for (int j = 0; j < collocPoints_.size(); j++)
-    //     {
-    //         ierr = MatGetValues(A, 1, &i, 1, &j, &val);
-    //         CHKERRQ(ierr);
-    //         std::cout << val << " ";
-    //     }
-    //     std::cout << std::endl;
-    // }
-
     ///FAZER LOOPING ADICIONANDO O VALOR DO QUE A GENTE CONHECE NO PONTO DE COLOCAÇÃO NO VETOR x (CONDIÇÕES DE CONTORNO)
     double value;
     if (rank == 0)
@@ -1864,24 +1846,6 @@ int Problem::solveElasticityProblem(const std::string &planeState)
     ierr = MatAssemblyEnd(C, MAT_FINAL_ASSEMBLY);
     CHKERRQ(ierr);
 
-    // MatView(A, PETSC_VIEWER_STDOUT_WORLD);
-    // CHKERRQ(ierr);
-
-    //  MatView(C, PETSC_VIEWER_STDOUT_WORLD);
-    // CHKERRQ(ierr);
-
-    // double val;
-    // for (int i = 0; i < collocPoints_.size(); i++)
-    // {
-    //     for (int j = 0; j < collocPoints_.size(); j++)
-    //     {
-    //         ierr = MatGetValues(A, 1, &i, 1, &j, &val);
-    //         CHKERRQ(ierr);
-    //         std::cout << val << " ";
-    //     }
-    //     std::cout << std::endl;
-    // }
-
     ///FAZER LOOPING ADICIONANDO O VALOR DO QUE A GENTE CONHECE NO PONTO DE COLOCAÇÃO NO VETOR x (CONDIÇÕES DE CONTORNO)
     double value;
     if (rank == 0)
@@ -1902,12 +1866,6 @@ int Problem::solveElasticityProblem(const std::string &planeState)
                     value = collocPoints_[ic]->getDisplacement(dir);
                     ierr = VecSetValues(x, 1, &index, &value, ADD_VALUES);
                 }
-                // else if (cond == 2)
-                // {
-                // }
-                // else if (cond == 3)
-                // {
-                // }
             }
         }
     }
@@ -1917,9 +1875,6 @@ int Problem::solveElasticityProblem(const std::string &planeState)
     CHKERRQ(ierr);
     ierr = VecAssemblyEnd(x);
     CHKERRQ(ierr);
-
-    // VecView(x, PETSC_VIEWER_STDOUT_WORLD);
-    // CHKERRQ(ierr);
 
     //Criando vetor do sistema
     ierr = MatMult(C, x, b);
@@ -1956,9 +1911,6 @@ int Problem::solveElasticityProblem(const std::string &planeState)
         ierr = VecAssemblyEnd(b);
         CHKERRQ(ierr);
     }
-
-    // VecView(b, PETSC_VIEWER_STDOUT_WORLD);
-    // CHKERRQ(ierr);
 
     //Create KSP context to solve the linear system
     ierr = KSPCreate(PETSC_COMM_WORLD, &ksp);
@@ -2267,24 +2219,9 @@ void Problem::exportToParaviewCollocationMesh_Elasticity(const int &index)
     for (SourcePoint *n : internalPoints_)
     {
         file << 0.0 << " " << 0.0 << "\n";
-        // file << sqrt(internalFlux_[n->getIndex()][0] * internalFlux_[n->getIndex()][0] + internalFlux_[n->getIndex()][1] * internalFlux_[n->getIndex()][1]) << "\n";
     }
     file << "      </DataArray> "
          << "\n";
-
-    // file << "      <DataArray type=\"Float64\" NumberOfComponents=\"2\" "
-    //      << "Name=\"InternalFlux\" format=\"ascii\">"
-    //      << "\n";
-    // for (CollocationPoint *n : collocPoints_)
-    // {
-    //     file << 0 << " " << 0 << "\n";
-    // }
-    // for (SourcePoint *n : internalPoints_)
-    // {
-    //     file << internalFlux_[n->getIndex()][0] << " " << internalFlux_[n->getIndex()][1] << "\n";
-    // }
-    // file << "      </DataArray> "
-    //      << "\n";
 
     file << "    </PointData>"
          << "\n";
@@ -2407,10 +2344,6 @@ void Problem::coupleLines(std::vector<std::vector<Line *>> coupledLines)
             cout << "CHECAR LINHAS ACOPLADAS\n";
         }
     }
-    // for (auto &tt : coupledCollocFirst_)
-    // {
-    //     cout << tt.first << " " << tt.second << "\n";
-    // }
 }
 
 void Problem::addBodyForceToSurface(Surface *surface, const vecDouble &values)

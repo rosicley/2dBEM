@@ -555,7 +555,6 @@ void BoundaryElement::calculateInternalStress(const std::vector<SourcePoint *> &
             quadrature_->get1DIntegrationPoint(ip, xsi, weight);
             getShapeFunctionAndDerivate(xsi, phi, dphi_dxsi);
 
-            // vecDouble tangent(2, 0.0), normal(2, 0.0), coordIP(2, 0.0);
             double tangent[2] = {0.0, 0.0}, normal[2] = {0.0, 0.0}, coordIP[2] = {0.0, 0.0};
             for (int in = 0; in < nNodes; in++)
             {
@@ -935,18 +934,6 @@ void DiscontBoundaryElement::potentialContribution(const std::vector<SourcePoint
                 matGlocal[isp][in] += U * phiColloc[in] + (-Usingular) * phiCollocSP[in];
             }
         }
-        // if (index_ == 0 and isp == 0)
-        // {
-        //     for (int in = 0; in < nNodes; in++)
-        //     {
-        //         std::cout << matGlocal[0][in] << " ";
-        //     }
-        //     std::cout << std::endl;
-        //     for (int in = 0; in < nNodes; in++)
-        //     {
-        //         std::cout << matHlocal[0][in] << " ";
-        //     }
-        // }
     }
 }
 
