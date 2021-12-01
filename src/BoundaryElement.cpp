@@ -413,7 +413,7 @@ void BoundaryElement::elasticityContribution(const std::vector<SourcePoint *> &s
                 {
                     for (int k = 0; k < 2; k++)
                     {
-                        Ufund[l][k] = auxU * (auxU2 * identity[l][k] + dRadius_dXi[l] * dRadius_dXi[k]) * JACW;
+                        Ufund[l][k] = auxU * (auxU2 * identity[l][k] - (7.0 - 8.0 * poisson) * 0.5 * identity[l][k] + dRadius_dXi[l] * dRadius_dXi[k]) * JACW;
                         Pfund[l][k] = auxP * (dRadius_dNormal * ((1.0 - 2.0 * poisson) * identity[l][k] + 2.0 * dRadius_dXi[l] * dRadius_dXi[k]) + (1.0 - 2.0 * poisson) * (normal[l] * dRadius_dXi[k] - normal[k] * dRadius_dXi[l])) * JACW;
                     }
                 }
@@ -467,7 +467,7 @@ void BoundaryElement::elasticityContribution(const std::vector<SourcePoint *> &s
                 {
                     for (int k = 0; k < 2; k++)
                     {
-                        Ufund[l][k] = auxU * (auxU2 * identity[l][k] + dRadius_dXi[l] * dRadius_dXi[k]) * JACW;
+                        Ufund[l][k] = auxU * (auxU2 * identity[l][k] - (7.0 - 8.0 * poisson) * 0.5 * identity[l][k] + dRadius_dXi[l] * dRadius_dXi[k]) * JACW;
                         Pfund[l][k] = auxP * (dRadius_dNormal * ((1.0 - 2.0 * poisson) * identity[l][k] + 2.0 * dRadius_dXi[l] * dRadius_dXi[k]) + (1.0 - 2.0 * poisson) * (normal[l] * dRadius_dXi[k] - normal[k] * dRadius_dXi[l])) * JACW;
 
                         Usingular[l][k] = auxU * (-(3.0 - 4.0 * poisson) * log(fabs(radiusAst)) * identity[l][k]) * jacSPW;
@@ -685,6 +685,80 @@ void BoundaryElement::elasticityBodyForceContribution(const std::vector<SourcePo
             vecB[2 * isp + 1] += (-normRadius / (8.0 * pi * G) * (2.0 * log(normRadius) + 1.0) *
                                   (dRadius_dNormal * force[1] - 1.0 / (2.0 * (1.0 - poisson)) * dRadius_dB * normal[1])) *
                                  JACW;
+        }
+    }
+}
+
+void BoundaryElement::calculateInternalStressBodyForce(const std::vector<SourcePoint *> &sourcePoints, vecDouble &vecB, Material *material, const vecDouble &force)
+{
+    const int nNodes = geoConnection_.size();
+    const int nSource = sourcePoints.size();
+
+    if (vecB.size() != 4 * nSource)
+    {
+        vecB.resize(4 * nSource);
+    }
+    setValueVecDouble(vecB, 0.0);
+
+    double xsi, weight, jac, JACW, normRadius, pi = 3.141592653589793, poisson, young, density, G;
+    double radius[2], dRadius_dXi[2], D[2][2];
+    const double identity[2][2] = {{1.0, 0.0}, {0.0, 1.0}};
+
+    vecDouble phi(nNodes), dphi_dxsi(nNodes), coordNode(3), coordSourceP(3);
+
+    material->getProperties(young, poisson, density);
+    G = young / (2.0 * (1.0 + poisson));
+
+    for (int isp = 0; isp < nSource; isp++)
+    {
+        for (int ip = 0, nip = quadrature_->get1DPointsNumber(); ip < nip; ip++)
+        {
+            quadrature_->get1DIntegrationPoint(ip, xsi, weight);
+            getShapeFunctionAndDerivate(xsi, phi, dphi_dxsi);
+
+            double tangent[2] = {0.0, 0.0}, normal[2] = {0.0, 0.0}, coordIP[2] = {0.0, 0.0};
+            for (int in = 0; in < nNodes; in++)
+            {
+                geoConnection_[in]->getCoordinate(coordNode);
+                coordIP[0] += phi[in] * coordNode[0];
+                coordIP[1] += phi[in] * coordNode[1];
+                tangent[0] += dphi_dxsi[in] * coordNode[0];
+                tangent[1] += dphi_dxsi[in] * coordNode[1];
+            }
+            jac = sqrt(tangent[0] * tangent[0] + tangent[1] * tangent[1]);
+            normal[0] = tangent[1] / jac;
+            normal[1] = -tangent[0] / jac;
+            JACW = jac * weight;
+
+            sourcePoints[isp]->getCoordinate(coordSourceP);
+
+            radius[0] = coordIP[0] - coordSourceP[0];
+            radius[1] = coordIP[1] - coordSourceP[1];
+            normRadius = sqrt(radius[0] * radius[0] + radius[1] * radius[1]);
+
+            dRadius_dXi[0] = radius[0] / normRadius;
+            dRadius_dXi[1] = radius[1] / normRadius;
+
+            double dRadius_dNormal = dRadius_dXi[0] * normal[0] + dRadius_dXi[1] * normal[1];
+            double dRadius_dB = dRadius_dXi[0] * force[0] + dRadius_dXi[1] * force[1];
+            double bm_nm = force[0] * normal[0] + force[1] * normal[1];
+
+            for (int i = 0; i < 2; i++)
+            {
+                for (int j = 0; j < 2; j++)
+                {
+                    double aux0 = 2.0 * dRadius_dNormal * (force[i] * dRadius_dXi[j] + force[j] * dRadius_dXi[i]);
+                    double aux1 = poisson * identity[i][j] * (2.0 * dRadius_dNormal * dRadius_dB + (1.0 + 2.0 * log(normRadius)) * bm_nm);
+                    double aux2 = -dRadius_dB * (normal[i] * dRadius_dXi[j] + normal[j] * dRadius_dXi[i]);
+                    double aux3 = (1.0 - 2.0 * poisson) * 0.5 * (1.0 + 2.0 * log(normRadius)) * (force[i] * normal[j] + force[j] * normal[i]);
+                    D[i][j] = 1.0 / (8.0 * pi) * (aux0 + 1.0 / (1.0 - poisson) * (aux1 + aux2 + aux3)) * JACW;
+                }
+            }
+
+            vecB[4 * isp] += D[0][0];
+            vecB[4 * isp + 1] += D[0][1];
+            vecB[4 * isp + 2] += D[1][0];
+            vecB[4 * isp + 3] += D[1][1];
         }
     }
 }
@@ -1011,7 +1085,7 @@ void DiscontBoundaryElement::elasticityContribution(const std::vector<SourcePoin
                 {
                     for (int k = 0; k < 2; k++)
                     {
-                        Ufund[l][k] = auxU * (auxU2 * identity[l][k] + dRadius_dXi[l] * dRadius_dXi[k]) * JACW;
+                        Ufund[l][k] = auxU * (auxU2 * identity[l][k] - (7.0 - 8.0 * poisson) * 0.5 * identity[l][k] + dRadius_dXi[l] * dRadius_dXi[k]) * JACW;
                         Pfund[l][k] = auxP * (dRadius_dNormal * ((1.0 - 2.0 * poisson) * identity[l][k] + 2.0 * dRadius_dXi[l] * dRadius_dXi[k]) + (1.0 - 2.0 * poisson) * (normal[l] * dRadius_dXi[k] - normal[k] * dRadius_dXi[l])) * JACW;
                     }
                 }
@@ -1066,7 +1140,7 @@ void DiscontBoundaryElement::elasticityContribution(const std::vector<SourcePoin
                 {
                     for (int k = 0; k < 2; k++)
                     {
-                        Ufund[l][k] = auxU * (auxU2 * identity[l][k] + dRadius_dXi[l] * dRadius_dXi[k]) * JACW;
+                        Ufund[l][k] = auxU * (auxU2 * identity[l][k] - (7.0 - 8.0 * poisson) * 0.5 * identity[l][k] + dRadius_dXi[l] * dRadius_dXi[k]) * JACW;
                         Pfund[l][k] = auxP * (dRadius_dNormal * ((1.0 - 2.0 * poisson) * identity[l][k] + 2.0 * dRadius_dXi[l] * dRadius_dXi[k]) + (1.0 - 2.0 * poisson) * (normal[l] * dRadius_dXi[k] - normal[k] * dRadius_dXi[l])) * JACW;
 
                         Usingular[l][k] = auxU * (-(3.0 - 4.0 * poisson) * log(fabs(radiusAst)) * identity[l][k]) * jacSPW;

@@ -19,22 +19,24 @@ geo->transfiniteLine({l1, l3}, 5);
 geo->transfiniteLine({l0, l2}, 5);
 
 geo->addDirichletCondition(l3, {0.0}, {0.0});
-// geo->addDirichletCondition(l0, {}, {0.0});
+// geo->addDirichletCondition(l0, {0.0}, {0.0});
 // geo->addDirichletCondition(l2, {}, {0.0});
 
 
 Problem *problem = new Problem(40, 0.25, 0.0);
 
-problem->addMaterial(1.0, 0.0);
+problem->addMaterial(100.0, 0.0);
 
-problem->generateMesh(geo, 2, "AUTO", false, true); // ordem <= 10
+problem->generateMesh(geo, 3, "AUTO", false, true); // ordem <= 10
 
 // problem->teste2();
 
-// problem->addInternalPoints(s0, {{0.25, 0.5}, {0.5, 0.5}, {0.75, 0.5}});
+problem->addInternalPoints(s0, {{0.25, 0.5}, {0.5, 0.5}, {0.75, 0.5}});
+problem->addInternalPoints(s0, {{0.5, 0.25}, {0.5, 0.75}});
+
 // problem->addInternalPoints(s1, {{1.5, 0.25}, {1.5, 0.75}});
 
-problem->addBodyForceToSurface(s0, {-1.0, 0.0});
+problem->addBodyForceToSurface(s0, {100.0, 0.0});
 // problem->addBodyForceToSurface(s1, {1.0, 0.0});
 
 problem->solveElasticityProblem("EPD");

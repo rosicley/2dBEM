@@ -41,6 +41,8 @@ public:
 
     void elasticityBodyForceContribution(const std::vector<SourcePoint *> &sourcePoints, vecDouble &vecB, Material *material, const vecDouble &force);
 
+    void calculateInternalStressBodyForce(const std::vector<SourcePoint *> &sourcePoints, vecDouble &vecB, Material *material, const vecDouble &force);
+
 protected:
     int index_;
 
