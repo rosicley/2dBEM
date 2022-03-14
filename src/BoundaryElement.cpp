@@ -379,7 +379,6 @@ void BoundaryElement::elasticityContribution(const std::vector<SourcePoint *> &s
             quadrature_->get1DIntegrationPoint(ip, xsi, weight);
             getShapeFunctionAndDerivate(xsi, phi, dphi_dxsi);
 
-            // vecDouble tangent(2, 0.0), normal(2, 0.0), coordIP(2, 0.0);
             double tangent[2] = {0.0, 0.0}, normal[2] = {0.0, 0.0}, coordIP[2] = {0.0, 0.0};
             for (int in = 0; in < nNodes; in++)
             {
@@ -429,7 +428,7 @@ void BoundaryElement::elasticityContribution(const std::vector<SourcePoint *> &s
                     }
                 }
             }
-            else
+            else ///PONTO FONTE PERTENCE AO ELEMENTO
             {
                 double Usingular[2][2], Psingular[2][2], dRadiusAst_dXi[2], VPC_U[2][2] = {{0.0, 0.0}, {0.0, 0.0}}, VPC_P[2][2] = {{0.0, 0.0}, {0.0, 0.0}};
                 double xsiSP;

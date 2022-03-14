@@ -1647,42 +1647,19 @@ int Problem::computeInternalPointsElasticityProblem()
 
 void Problem::teste()
 {
-    // SourcePoint *s = sourcePoints_[16];
-    // std::cout << s->getCoordinate(0) << " " << s->getCoordinate(1) << std::endl;
-
-    // for (int i = 0; i < elements_.size(); i++)
-    // {
-    //     if (s->checkElement(i))
-    //     {
-    //         std::cout << "ELEMENTO " << i << " CONTEM...\n";
-    //     }
-    // }
-    for (int i = 0; i < 4; i++)
+    cout << "DESLOCAMENTO DAS LINHAS L0 E L4\n";
+    for (auto &el : lineElements_["l0"])
     {
-
-        std::string name = "l" + std::to_string(i);
-        std::ofstream file(name + ".txt");
-        for (BoundaryElement *el : lineElements_[name])
+        for (auto &c : el->getCollocationConnection())
         {
-            for (CollocationPoint *c : el->getCollocationConnection())
-            {
-                if (i == 0)
-                {
-                    file << c->getCoordinate(0) << " " << c->getPotential() << " " << c->getFlux() << "\n";
-                }
-                else if (i == 1)
-                {
-                    file << 4.0 + c->getCoordinate(1) << " " << c->getPotential() << " " << c->getFlux() << "\n";
-                }
-                else if (i == 2)
-                {
-                    file << 8.0 + (4.0 - c->getCoordinate(0)) << " " << c->getPotential() << " " << c->getFlux() << "\n";
-                }
-                else
-                {
-                    file << 12.0 + (4.0 - c->getCoordinate(1)) << " " << c->getPotential() << " " << c->getFlux() << "\n";
-                }
-            }
+            cout << c->getCoordinate(0) << " " << c->getDisplacement(0) << endl;
+        }
+    }
+    for (auto &el : lineElements_["l4"])
+    {
+        for (auto &c : el->getCollocationConnection())
+        {
+            cout << c->getCoordinate(0) << " " << c->getDisplacement(0) << endl;
         }
     }
 }
@@ -1731,7 +1708,7 @@ int Problem::solveElasticityProblem(const std::string &planeState)
     matDouble matGl, matHl;
     if (rank == 0)
     {
-        for (auto &sub : subElements_)
+        for (auto &sub : subElements_) /// looping em todas as subregiões
         {
             const int indexMat = geometry_->getIndexMaterial(sub.first);
             const std::vector<SourcePoint *> sourcePoints = subSourcePoints_[sub.first];
@@ -1743,7 +1720,7 @@ int Problem::solveElasticityProblem(const std::string &planeState)
                 indexSourcePoints[2 * is + 1] = 2 * sourcePoints[is]->getIndex() + 1;
             }
 
-            for (auto &el : sub.second)
+            for (auto &el : sub.second) /// looping em todos os elementos da subregião
             {
                 el->elasticityContribution(sourcePoints, matGl, matHl, materials_[indexMat]);
                 std::vector<CollocationPoint *> conec = el->getCollocationConnection();
@@ -1804,7 +1781,7 @@ int Problem::solveElasticityProblem(const std::string &planeState)
         }
     }
 
-    if (!sourceOut_ and rank == 0)
+    if (!sourceOut_ and rank == 0) /// se o ponto fonte está no contorno, adiciona-se o 0.5 na diagonal
     {
         double ccc = 0.5;
         for (int icoloc = 0; icoloc < nCollocation; icoloc++)
@@ -1880,10 +1857,10 @@ int Problem::solveElasticityProblem(const std::string &planeState)
     ierr = MatMult(C, x, b);
     CHKERRQ(ierr);
 
-    if (bodyForces_.size() > 0)
+    if (bodyForces_.size() > 0) /// se há alguma força de domínio em alguma superfície, entra aqui
     {
         vecDouble vecB;
-        for (auto &bf : bodyForces_)
+        for (auto &bf : bodyForces_) /// looping em todas as forças de volume adicionadas
         {
             std::string surfaceName = bf.first;
             const int indexMat = geometry_->getIndexMaterial(surfaceName);
@@ -1954,6 +1931,7 @@ int Problem::solveElasticityProblem(const std::string &planeState)
     ierr = VecScatterDestroy(&ctx);
     CHKERRQ(ierr);
 
+    /// looping em todos os pontos de colocação para ler os resultados
     for (int ic = 0; ic < nCollocation; ic++)
     {
         for (int dir = 0; dir < 2; dir++)
