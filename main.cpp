@@ -15,6 +15,6 @@ int main(int argc, char **args)
 #include "examples/chapa.h"
 
     PetscFinalize();
-
+ // teste
     return 0;
 }
