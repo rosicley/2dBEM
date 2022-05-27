@@ -11,6 +11,7 @@ int main(int argc, char **args)
     // #include "examples/viga.h"
     // #include "examples/viga_subregioes.h"
     // #include "examples/teste.h"
+    
 
 #include "examples/chapa.h"
 
